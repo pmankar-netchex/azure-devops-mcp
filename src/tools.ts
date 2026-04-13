@@ -16,7 +16,14 @@ import { configureWikiTools } from "./tools/wiki.js";
 import { configureWorkTools } from "./tools/work.js";
 import { configureWorkItemTools } from "./tools/work-items.js";
 
-function configureAllTools(server: McpServer, tokenProvider: () => Promise<string>, connectionProvider: () => Promise<WebApi>, userAgentProvider: () => string, enabledDomains: Set<string>) {
+function configureAllTools(
+  server: McpServer,
+  tokenProvider: () => Promise<string>,
+  connectionProvider: () => Promise<WebApi>,
+  userAgentProvider: () => string,
+  enabledDomains: Set<string>,
+  orgName?: string
+) {
   const configureIfDomainEnabled = (domain: string, configureFn: () => void) => {
     if (enabledDomains.has(domain)) {
       configureFn();
@@ -31,7 +38,7 @@ function configureAllTools(server: McpServer, tokenProvider: () => Promise<strin
   configureIfDomainEnabled(Domain.WORK_ITEMS, () => configureWorkItemTools(server, tokenProvider, connectionProvider, userAgentProvider));
   configureIfDomainEnabled(Domain.WIKI, () => configureWikiTools(server, tokenProvider, connectionProvider, userAgentProvider));
   configureIfDomainEnabled(Domain.TEST_PLANS, () => configureTestPlanTools(server, tokenProvider, connectionProvider, userAgentProvider));
-  configureIfDomainEnabled(Domain.SEARCH, () => configureSearchTools(server, tokenProvider, connectionProvider, userAgentProvider));
+  configureIfDomainEnabled(Domain.SEARCH, () => configureSearchTools(server, tokenProvider, connectionProvider, userAgentProvider, orgName ?? ""));
   configureIfDomainEnabled(Domain.ADVANCED_SECURITY, () => configureAdvSecTools(server, tokenProvider, connectionProvider));
 }
 

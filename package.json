@@ -13,7 +13,8 @@
   },
   "type": "module",
   "bin": {
-    "mcp-server-azuredevops": "dist/index.js"
+    "mcp-server-azuredevops": "dist/index.js",
+    "mcp-server-azuredevops-http": "dist/http-server.js"
   },
   "files": [
     "dist"
@@ -30,6 +31,7 @@
     "watch": "tsc --watch",
     "inspect": "ALLOWED_ORIGINS=http://127.0.0.1:6274 npx @modelcontextprotocol/inspector@0.21.0 node dist/index.js",
     "start": "node -r tsconfig-paths/register dist/index.js",
+    "start:http": "node dist/http-server.js",
     "eslint": "eslint",
     "eslint-fix": "eslint --fix",
     "format": "prettier --write .",
@@ -44,12 +46,14 @@
     "azure-devops-extension-api": "^4.264.0",
     "azure-devops-extension-sdk": "^4.0.2",
     "azure-devops-node-api": "^15.1.2",
+    "express": "^5.2.1",
     "winston": "^3.18.3",
     "yargs": "^18.0.0",
     "zod": "^3.25.63",
     "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.19.1",
     "eslint-config-prettier": "10.1.8",

@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.github
+.azuredevops
+.devcontainer
+.husky
+docs
+test
+*.md
+.prettierrc.json
+jest.config.cjs
+eslint.config.mjs
+eslint-rules
+scripts
+mcp.json
+server.json
