@@ -3,11 +3,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { getBearerHandler, WebApi } from "azure-devops-node-api";
 import type { Request, Response, NextFunction } from "express";
 
@@ -110,53 +108,27 @@ async function main() {
 
   const app = createMcpExpressApp({ host: "0.0.0.0" });
 
-  // Session transport map
-  const transports: Record<string, StreamableHTTPServerTransport> = {};
-
   // Health check endpoint (no auth required)
   app.get("/health", (_req: Request, res: Response) => {
     res.json({ status: "ok", version: packageVersion, organization: orgName });
   });
 
-  // MCP POST endpoint
+  // MCP POST endpoint — stateless: a fresh server + transport per request.
+  // This avoids in-memory session state, which does not survive scale-to-zero
+  // or load-balancing across multiple replicas on Azure Container Apps.
   app.post("/mcp", apiKeyAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    const server = createConfiguredServer(authenticator, userAgentComposer);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless — no session tracking
+    });
+
+    res.on("close", () => {
+      void transport.close();
+      void server.close();
+    });
 
     try {
-      let transport: StreamableHTTPServerTransport;
-
-      if (sessionId && transports[sessionId]) {
-        transport = transports[sessionId];
-      } else if (!sessionId && isInitializeRequest(req.body)) {
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (sid) => {
-            logger.info(`Session initialized: ${sid}`);
-            transports[sid] = transport;
-          },
-        });
-
-        transport.onclose = () => {
-          const sid = transport.sessionId;
-          if (sid && transports[sid]) {
-            logger.info(`Session closed: ${sid}`);
-            delete transports[sid];
-          }
-        };
-
-        const server = createConfiguredServer(authenticator, userAgentComposer);
-        await server.connect(transport);
-        await transport.handleRequest(req, res, req.body);
-        return;
-      } else {
-        res.status(400).json({
-          jsonrpc: "2.0",
-          error: { code: -32000, message: "Bad Request: No valid session ID provided" },
-          id: null,
-        });
-        return;
-      }
-
+      await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
       logger.error("Error handling MCP POST request:", error);
@@ -170,44 +142,17 @@ async function main() {
     }
   });
 
-  // MCP GET endpoint (SSE streams)
-  app.get("/mcp", apiKeyAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Invalid or missing session ID" },
-        id: null,
-      });
-      return;
-    }
-
-    const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
-  });
-
-  // MCP DELETE endpoint (session termination)
-  app.delete("/mcp", apiKeyAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Invalid or missing session ID" },
-        id: null,
-      });
-      return;
-    }
-
-    try {
-      const transport = transports[sessionId];
-      await transport.handleRequest(req, res);
-    } catch (error) {
-      logger.error("Error handling session termination:", error);
-      if (!res.headersSent) {
-        res.status(500).send("Error processing session termination");
-      }
-    }
-  });
+  // In stateless mode there are no sessions, so server-initiated SSE streams
+  // (GET) and session termination (DELETE) are not supported.
+  const methodNotAllowed = (_req: Request, res: Response): void => {
+    res.status(405).json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Method not allowed: server runs in stateless mode" },
+      id: null,
+    });
+  };
+  app.get("/mcp", apiKeyAuth, methodNotAllowed);
+  app.delete("/mcp", apiKeyAuth, methodNotAllowed);
 
   // Start listening
   app.listen(port, "0.0.0.0", () => {
@@ -216,29 +161,13 @@ async function main() {
   });
 
   // Graceful shutdown
-  process.on("SIGINT", async () => {
+  process.on("SIGINT", () => {
     logger.info("Shutting down server...");
-    for (const sessionId in transports) {
-      try {
-        await transports[sessionId].close();
-        delete transports[sessionId];
-      } catch (error) {
-        logger.error(`Error closing transport for session ${sessionId}:`, error);
-      }
-    }
     process.exit(0);
   });
 
-  process.on("SIGTERM", async () => {
+  process.on("SIGTERM", () => {
     logger.info("Received SIGTERM, shutting down...");
-    for (const sessionId in transports) {
-      try {
-        await transports[sessionId].close();
-        delete transports[sessionId];
-      } catch (error) {
-        logger.error(`Error closing transport for session ${sessionId}:`, error);
-      }
-    }
     process.exit(0);
   });
 }
