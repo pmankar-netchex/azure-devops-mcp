@@ -20,10 +20,11 @@ This TypeScript project provides a **local** MCP server for Azure DevOps, enabli
 4. [⚙️ Supported Tools](#️-supported-tools)
 5. [🔌 Installation & Getting Started](#-installation--getting-started)
 6. [🌏 Using Domains](#-using-domains)
-7. [📝 Troubleshooting](#-troubleshooting)
-8. [🎩 Examples & Best Practices](#-examples--best-practices)
-9. [🙋‍♀️ Frequently Asked Questions](#️-frequently-asked-questions)
-10. [📌 Contributing](#-contributing)
+7. [🌐 Remote HTTP Deployment](#-remote-http-deployment-azure-container-apps)
+8. [📝 Troubleshooting](#-troubleshooting)
+9. [🎩 Examples & Best Practices](#-examples--best-practices)
+10. [🙋‍♀️ Frequently Asked Questions](#️-frequently-asked-questions)
+11. [📌 Contributing](#-contributing)
 
 ## 📺 Overview
 
@@ -181,6 +182,76 @@ Domains that are available are: `core`, `work`, `work-items`, `search`, `test-pl
 We recommend that you always enable `core` tools so that you can fetch project level information.
 
 > By default all domains are loaded
+
+## 🌐 Remote HTTP Deployment (Azure Container Apps)
+
+This server can be deployed as a remote Streamable HTTP MCP server on Azure Container Apps.
+
+### Environment Variables
+
+| Variable             | Required | Description                                            |
+| -------------------- | -------- | ------------------------------------------------------ |
+| `ADO_ORGANIZATION`   | Yes      | Azure DevOps organization name                         |
+| `ADO_AUTH_TYPE`      | No       | Auth type: `envvar` (default for HTTP), `azcli`, `env` |
+| `ADO_MCP_AUTH_TOKEN` | Yes      | Azure DevOps PAT token                                 |
+| `MCP_API_KEY`        | Yes      | API key for MCP endpoint authentication                |
+| `PORT`               | No       | HTTP port (default: `8080`)                            |
+| `ADO_DOMAINS`        | No       | Comma-separated domains to enable (default: `all`)     |
+| `LOG_LEVEL`          | No       | Logging level (default: `info`)                        |
+
+### Docker Build & Run
+
+```bash
+docker build -t azure-devops-mcp .
+docker run -p 8080:8080 \
+  -e ADO_ORGANIZATION=myorg \
+  -e ADO_MCP_AUTH_TOKEN=your-pat-token \
+  -e MCP_API_KEY=your-api-key \
+  azure-devops-mcp
+```
+
+### Deploy to Azure Container Apps
+
+```bash
+# Build in ACR
+az acr build --registry <acr-name> --image azure-devops-mcp:latest .
+
+# Create Container App
+az containerapp create \
+  --name azure-devops-mcp \
+  --resource-group <rg-name> \
+  --environment <env-name> \
+  --image <acr-name>.azurecr.io/azure-devops-mcp:latest \
+  --target-port 8080 --ingress external \
+  --secrets "mcp-api-key=<key>" "ado-pat-token=<pat>" \
+  --env-vars "ADO_ORGANIZATION=myorg" "ADO_AUTH_TYPE=envvar" \
+    "ADO_MCP_AUTH_TOKEN=secretref:ado-pat-token" "MCP_API_KEY=secretref:mcp-api-key"
+```
+
+### MCP Client Configuration (Streamable HTTP)
+
+```json
+{
+  "servers": {
+    "azure-devops": {
+      "type": "streamable-http",
+      "url": "https://<your-app>.azurecontainerapps.io/mcp",
+      "headers": {
+        "x-api-key": "<your-mcp-api-key>"
+      }
+    }
+  }
+}
+```
+
+### Endpoints
+
+| Endpoint  | Method | Description                         |
+| --------- | ------ | ----------------------------------- |
+| `/health` | GET    | Health check (no auth required)     |
+| `/mcp`    | POST   | MCP JSON-RPC endpoint               |
+| `/mcp`    | GET    | SSE stream for server notifications |
+| `/mcp`    | DELETE | Session termination                 |
 
 ## 📝 Troubleshooting
 
